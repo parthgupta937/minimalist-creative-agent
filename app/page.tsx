@@ -1,69 +1,230 @@
-import Image from "next/image";
+'use client'
+
+import { useState } from 'react'
+import type { ValidationResult } from '@/lib/spec'
+import {
+  ProductPayloadForm,
+  emptyFormState,
+  formStateFromPayload,
+  type FormState,
+} from '@/app/components/ProductPayloadForm'
+
+type EntryMode = 'url' | 'paste' | 'manual'
+type Step = 'entry' | 'review'
+
+type ApiResponse = ValidationResult | { ok: false; error: string }
+
+const tabClasses = (active: boolean) =>
+  `rounded-t px-4 py-2 text-sm font-medium border-b-2 ${
+    active
+      ? 'border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100'
+      : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200'
+  }`
+
+function messageFromApiResponse(data: ApiResponse): string {
+  if (!data.ok) {
+    if ('stop' in data) return data.stop.detail
+    return data.error
+  }
+  return ''
+}
 
 export default function Home() {
+  const [mode, setMode] = useState<EntryMode>('url')
+  const [step, setStep] = useState<Step>('entry')
+  const [urlInput, setUrlInput] = useState('')
+  const [pasteContent, setPasteContent] = useState('')
+  const [pasteUrl, setPasteUrl] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [banner, setBanner] = useState<string | null>(null)
+  const [form, setForm] = useState<FormState | null>(null)
+
+  async function callExtraction(path: string, body: unknown) {
+    setLoading(true)
+    setBanner(null)
+    try {
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = (await res.json()) as ApiResponse
+      if (data.ok) {
+        setForm(formStateFromPayload(data.payload))
+        setStep('review')
+      } else {
+        setBanner(messageFromApiResponse(data))
+      }
+    } catch (err) {
+      setBanner(err instanceof Error ? err.message : 'Network error — could not reach the server.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function submitUrl(e: React.FormEvent) {
+    e.preventDefault()
+    void callExtraction('/api/fetch-product', { url: urlInput })
+  }
+
+  function submitPaste(e: React.FormEvent) {
+    e.preventDefault()
+    void callExtraction('/api/extract-text', { content: pasteContent, url: pasteUrl })
+  }
+
+  function startManual() {
+    setBanner(null)
+    setForm(emptyFormState())
+    setStep('review')
+  }
+
+  function startOver() {
+    setForm(null)
+    setStep('entry')
+    setBanner(null)
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <div className="flex flex-col flex-1 items-center bg-zinc-50 dark:bg-black">
+      <main className="flex w-full max-w-2xl flex-col gap-8 px-6 py-16">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+            Minimalist — Ad Creative Generator
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+            Pull a beminimalist.co product page, or enter its details by hand, then review every field before
+            generating a creative.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+
+        {step === 'entry' && (
+          <div className="flex flex-col gap-6">
+            <div className="flex border-b border-zinc-200 dark:border-zinc-800">
+              <button type="button" className={tabClasses(mode === 'url')} onClick={() => setMode('url')}>
+                Fetch by URL
+              </button>
+              <button type="button" className={tabClasses(mode === 'paste')} onClick={() => setMode('paste')}>
+                Paste content instead
+              </button>
+              <button type="button" className={tabClasses(mode === 'manual')} onClick={() => setMode('manual')}>
+                Enter manually
+              </button>
+            </div>
+
+            {banner && (
+              <div className="rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+                {banner}
+              </div>
+            )}
+
+            {mode === 'url' && (
+              <form onSubmit={submitUrl} className="flex flex-col gap-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    Product page URL
+                  </span>
+                  <input
+                    type="text"
+                    value={urlInput}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                    placeholder="https://beminimalist.co/products/..."
+                    className="w-full rounded border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={loading || urlInput.trim().length === 0}
+                  className="self-start rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+                >
+                  {loading ? 'Fetching…' : 'Fetch'}
+                </button>
+              </form>
+            )}
+
+            {mode === 'paste' && (
+              <form onSubmit={submitPaste} className="flex flex-col gap-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    Source URL (optional but recommended)
+                  </span>
+                  <input
+                    type="text"
+                    value={pasteUrl}
+                    onChange={(e) => setPasteUrl(e.target.value)}
+                    placeholder="https://beminimalist.co/products/..."
+                    className="w-full rounded border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    Pasted page text or HTML
+                  </span>
+                  <textarea
+                    value={pasteContent}
+                    onChange={(e) => setPasteContent(e.target.value)}
+                    rows={10}
+                    placeholder="Paste the product page's visible text (or its HTML source) here…"
+                    className="w-full rounded border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={loading || pasteContent.trim().length === 0}
+                  className="self-start rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+                >
+                  {loading ? 'Extracting…' : 'Extract'}
+                </button>
+              </form>
+            )}
+
+            {mode === 'manual' && (
+              <div className="flex flex-col gap-3">
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                  Skip extraction entirely and type every field in yourself.
+                </p>
+                <button
+                  type="button"
+                  onClick={startManual}
+                  className="self-start rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
+                >
+                  Start manual entry
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {step === 'review' && form && (
+          <div className="flex flex-col gap-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Review &amp; edit</h2>
+              <button
+                type="button"
+                onClick={startOver}
+                className="text-sm text-zinc-500 underline hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+              >
+                Start over
+              </button>
+            </div>
+
+            <ProductPayloadForm form={form} onChange={setForm} />
+
+            <div className="flex flex-col gap-2 border-t border-zinc-200 pt-6 dark:border-zinc-800">
+              <button
+                type="button"
+                disabled
+                className="self-start rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+              >
+                Generate creative
+              </button>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Rendering isn&apos;t wired up yet — this button will enable once every required field passes
+                validation.
+              </p>
+            </div>
+          </div>
+        )}
       </main>
     </div>
-  );
+  )
 }

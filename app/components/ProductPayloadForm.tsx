@@ -2,14 +2,16 @@
 
 import type { ProductPayload, ValidationResult } from '@/lib/spec'
 
+export const MIN_BENEFITS = 2
+export const MAX_BENEFITS = 4
+
 export interface FormState {
   productName: string
   percentage: string
   formatDescriptor: string
   concernChip: string
   keyIngredientsText: string
-  benefit1: string
-  benefit2: string
+  benefits: string[]
   ph: string
   usageTime: string
   skinType: string
@@ -25,8 +27,7 @@ export function emptyFormState(sourceUrl = ''): FormState {
     formatDescriptor: '',
     concernChip: '',
     keyIngredientsText: '',
-    benefit1: '',
-    benefit2: '',
+    benefits: ['', ''],
     ph: '',
     usageTime: '',
     skinType: '',
@@ -43,8 +44,7 @@ export function formStateFromPayload(payload: ProductPayload): FormState {
     formatDescriptor: payload.formatDescriptor ?? '',
     concernChip: payload.concernChip ?? '',
     keyIngredientsText: payload.keyIngredients.join('\n'),
-    benefit1: payload.benefits[0] ?? '',
-    benefit2: payload.benefits[1] ?? '',
+    benefits: payload.benefits.length > 0 ? [...payload.benefits] : ['', ''],
     ph: payload.ph ?? '',
     usageTime: payload.usageTime ?? '',
     skinType: payload.skinType ?? '',
@@ -55,7 +55,7 @@ export function formStateFromPayload(payload: ProductPayload): FormState {
 }
 
 /** Shape fed to validatePayload() — mirrors ProductPayload except benefits/keyIngredients
- * are built fresh from the two dedicated benefit fields and the line-delimited textarea. */
+ * are built fresh from the benefits array and the line-delimited textarea. */
 export function buildCandidatePayload(form: FormState): unknown {
   return {
     productName: form.productName,
@@ -66,7 +66,7 @@ export function buildCandidatePayload(form: FormState): unknown {
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean),
-    benefits: [form.benefit1, form.benefit2],
+    benefits: form.benefits,
     ph: form.ph,
     usageTime: form.usageTime,
     skinType: form.skinType,
@@ -219,13 +219,45 @@ export function ProductPayloadForm({ form, onChange, errors = {} }: ProductPaylo
         />
       </FieldRow>
 
-      <FieldRow label="Benefit 1 (verbatim)" required error={errors.benefits}>
-        <TextInput value={form.benefit1} onChange={(v) => set('benefit1', v)} hasError={!!errors.benefits} />
-      </FieldRow>
-
-      <FieldRow label="Benefit 2 (verbatim)" required error={errors.benefits}>
-        <TextInput value={form.benefit2} onChange={(v) => set('benefit2', v)} hasError={!!errors.benefits} />
-      </FieldRow>
+      <div className="flex flex-col gap-2">
+        <span className={labelClasses}>
+          Benefits (verbatim, {MIN_BENEFITS}-{MAX_BENEFITS})
+          <span className="text-red-500"> *</span>
+        </span>
+        {form.benefits.map((benefit, index) => (
+          <div key={index} className="flex items-center gap-2">
+            <div className="flex-1">
+              <TextInput
+                value={benefit}
+                onChange={(v) => {
+                  const next = [...form.benefits]
+                  next[index] = v
+                  set('benefits', next)
+                }}
+                placeholder={`Benefit ${index + 1}`}
+                hasError={!!errors.benefits}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => set('benefits', form.benefits.filter((_, i) => i !== index))}
+              disabled={form.benefits.length <= MIN_BENEFITS}
+              className="rounded border border-zinc-300 px-2 py-2 text-xs font-medium text-zinc-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300"
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => set('benefits', [...form.benefits, ''])}
+          disabled={form.benefits.length >= MAX_BENEFITS}
+          className="self-start rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300"
+        >
+          + Add benefit
+        </button>
+        {errors.benefits && <span className={errorTextClasses}>{errors.benefits}</span>}
+      </div>
 
       <FieldRow label="pH">
         <TextInput value={form.ph} onChange={(v) => set('ph', v)} placeholder="e.g. 6.0 - 7.0" />

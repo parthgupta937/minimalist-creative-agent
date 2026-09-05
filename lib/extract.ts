@@ -67,7 +67,9 @@ const extractionSchema = {
     formatDescriptor: { anyOf: [{ type: 'string' }, { type: 'null' }] },
     concernChip: { anyOf: [{ type: 'string' }, { type: 'null' }] },
     keyIngredients: { type: 'array', items: { type: 'string' } },
-    benefits: { type: 'array', items: { type: 'string' } },
+    // minItems/maxItems here only guide the model's own guess at a typical count;
+    // validatePayload() is the real 2-4 enforcement point (spec.ts), not this schema.
+    benefits: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 8 },
     ph: { anyOf: [{ type: 'string' }, { type: 'null' }] },
     usageTime: { anyOf: [{ type: 'string' }, { type: 'null' }] },
     skinType: { anyOf: [{ type: 'string' }, { type: 'null' }] },

@@ -4,7 +4,10 @@ export interface ProductPayload {
   formatDescriptor: string | null
   concernChip: string | null
   keyIngredients: string[]
-  benefits: [string, string]
+  // 2-4, not the spec doc's literal "exactly two" (§5.4/8.1) — every real PDP checked
+  // in the Sept 2026 smoke test ships 4 verbatim bullets, so "exactly two" hard-stopped
+  // on 100% of real products. Confirmed product decision: accept 2-4 verbatim, unmodified.
+  benefits: string[]
   ph: string | null
   usageTime: string | null
   skinType: string | null
@@ -87,17 +90,17 @@ export function validatePayload(input: unknown): ValidationResult {
       stop: {
         stopCode: 'INSUFFICIENT_BENEFITS',
         field: 'benefits',
-        detail: `Exactly two verbatim benefit strings are required; found ${benefits.length}.`,
+        detail: `Between two and four verbatim benefit strings are required; found ${benefits.length}.`,
       },
     }
   }
-  if (benefits.length > 2) {
+  if (benefits.length > 4) {
     return {
       ok: false,
       stop: {
         stopCode: 'TOO_MANY_BENEFITS',
         field: 'benefits',
-        detail: `Exactly two verbatim benefit strings are required; found ${benefits.length}.`,
+        detail: `Between two and four verbatim benefit strings are required; found ${benefits.length}.`,
       },
     }
   }
@@ -119,7 +122,7 @@ export function validatePayload(input: unknown): ValidationResult {
     formatDescriptor: toNullableString(raw.formatDescriptor),
     concernChip: toNullableString(raw.concernChip),
     keyIngredients: raw.keyIngredients as string[],
-    benefits: [benefits[0], benefits[1]],
+    benefits: benefits as string[],
     ph: toNullableString(raw.ph),
     usageTime: toNullableString(raw.usageTime),
     skinType: toNullableString(raw.skinType),

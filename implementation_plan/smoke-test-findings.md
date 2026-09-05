@@ -232,3 +232,95 @@ and are documented here rather than changed.
    real-length PDP benefit strings — the footer strip is effectively always
    pushed off-canvas, and long ingredient lists can overflow horizontally. This
    is a layout capacity issue for a future task, not a parsing bug.
+
+## Update (2026-09-05): benefits rule relaxed to 2-4, overflow bugs fixed
+
+Following this smoke test, an explicit product decision was made: **relax the
+benefits hard-stop to accept 2-4 verbatim benefits** (still hard-stop below 2;
+still never rewrite/paraphrase/truncate — every benefit present must render,
+none silently dropped), rather than keep the original spec's literal
+Template-A "exactly two" rule from `docs/minimalist-brand-creative-spec.md`
+§5.4/8.1. This is a deliberate, confirmed deviation from that spec doc, made
+in direct response to the finding above that all three real product categories
+tested currently ship exactly four verbatim bullets — not two — under "What
+Makes It Potent?".
+
+### What changed
+
+- `lib/spec.ts`: `ProductPayload.benefits` widened from the fixed 2-tuple
+  `[string, string]` to `string[]`. `validatePayload()` now hard-stops
+  `INSUFFICIENT_BENEFITS` below 2 and `TOO_MANY_BENEFITS` above 4, otherwise
+  accepts whatever count (2, 3, or 4) is present, unmodified. Stop `detail`
+  messages now read "Between two and four verbatim benefit strings are
+  required; found N."
+- `lib/extract.ts`: the extraction JSON schema's `benefits` field gained a
+  generous `minItems: 1, maxItems: 8` (soft guidance for the model only —
+  `validatePayload()` remains the sole real enforcement point, so the model is
+  never relied on to self-limit to the 2-4 range). No change to the
+  verbatim-extraction prompt itself — it already returned however many
+  bullets were genuinely present.
+- `app/components/ProductPayloadForm.tsx`: the fixed "Benefit 1" / "Benefit 2"
+  two-input UI was replaced with a variable-length list (2-4 verbatim benefit
+  text inputs) with add/remove controls bounded to that range (remove
+  disabled at 2 fields, add disabled at 4). `FormState.benefits` is now a
+  `string[]` (was `benefit1`/`benefit2`); `buildCandidatePayload`,
+  `formStateFromPayload`, and `fieldErrorsFromValidation` were updated to
+  match.
+- `lib/render-creative.tsx`: fixed the two real overflow bugs found above.
+  The pack-image area changed from a fixed 600×600 block to a flexible
+  `flex: 1` region (with a `minHeight` floor) so it shrinks to make room for
+  however much benefit/ingredient text is present, instead of starving the
+  content below it. The `keyIngredients` row gained `flexWrap: 'wrap'` plus a
+  `flex: 1, minWidth: 0` value span so long ingredient lists wrap onto a
+  second line instead of clipping past the canvas edge. Fonts and gaps were
+  trimmed slightly (e.g. product name 46px→42px, benefit text 28px→24px,
+  footer 24px→22px) to give denser 4-benefit content more headroom. Canvas
+  size stays a fixed 1080×1080 throughout — only internal layout changed.
+
+### Re-verification against the same three real URLs
+
+All three URLs were re-fetched live via `npm run dev` + real
+`POST /api/fetch-product` calls (real Anthropic API credit used, as expected):
+
+| Product | `/api/fetch-product` | Benefits found | `/api/render` |
+|---|---|---|---|
+| Hyaluronic + PGA 2% Face Serum | `HTTP 200 { ok: true }` | 4 (all verbatim, unmodified) | `HTTP 200`, 1080×1080 PNG, 179KB |
+| Vitamin B5 10% Moisturizer | `HTTP 200 { ok: true }` | 4 (all verbatim, unmodified) | `HTTP 200`, 1080×1080 PNG, 163KB |
+| B12 + Oat Extract 6.5% Gentle Cleanser | `HTTP 200 { ok: true }` | 4 (all verbatim, unmodified) | `HTTP 200`, 1080×1080 PNG, 204KB |
+
+All three previously hit `TOO_MANY_BENEFITS`; all three now complete the full
+happy path end-to-end with no hard-stop.
+
+All three rendered PNGs were visually inspected:
+
+- No clipping or off-canvas content in any of the three — the footer strip
+  (usage time · skin type · pH) is visible at the bottom of all three renders,
+  including the cleanser and serum whose 4 benefit bullets each run several
+  lines of wrapped text.
+- The moisturizer's previously-clipped `keyIngredients` line ("Vitamin B5
+  (Panthenol), Biosaccharide Gum, Zinc, Copper & Magnesium") now wraps cleanly
+  onto a second line instead of running past the right edge.
+- Real pack photography (dropper bottle, tube, pump bottle) renders correctly
+  in all three, shrunk to fit the remaining vertical space rather than a
+  fixed 600×600 block.
+- All 4 real verbatim benefit bullets are present, unmodified, in every
+  render — nothing was silently dropped or truncated to fit.
+
+One incidental observation made during this re-verification, unrelated to the
+benefits/render changes above and not touched: the cleanser's `concernChip`
+this time round resolved to the full marketing tagline ("Gentle, low-foaming
+cleanser for damaged, sensitive skin") rather than "Dry" as found in the
+original smoke test pass above. This is `lib/extract.ts`'s existing
+CONCERN_STRAP_UNDER_TITLE-vs-generic-tagline judgment call (out of scope for
+this change), not a regression introduced here — the render itself handled
+the longer chip text gracefully (single line, pill auto-sized, no overflow).
+
+### Bottom line
+
+The practical hit-rate problem flagged in the original findings above — "the
+exactly-two rule will fire on effectively every live product" — is resolved
+for the three categories tested. The known-limitations note for the
+assignment should now read: benefits are accepted verbatim in the 2-4 range
+per an explicit, documented product decision (not a bug), and the 1080×1080
+render layout was hardened against real-length PDP copy (not just the
+short/synthetic strings used in earlier tasks).

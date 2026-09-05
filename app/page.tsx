@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
-import type { ValidationResult } from '@/lib/spec'
+import { useMemo, useState } from 'react'
+import { validatePayload, type ValidationResult } from '@/lib/spec'
 import {
   ProductPayloadForm,
+  buildCandidatePayload,
   emptyFormState,
+  fieldErrorsFromValidation,
   formStateFromPayload,
   type FormState,
 } from '@/app/components/ProductPayloadForm'
@@ -83,6 +85,13 @@ export default function Home() {
     setStep('entry')
     setBanner(null)
   }
+
+  const validation = useMemo(
+    () => (form ? validatePayload(buildCandidatePayload(form)) : null),
+    [form],
+  )
+  const fieldErrors = validation ? fieldErrorsFromValidation(validation) : {}
+  const canGenerate = validation?.ok === true
 
   return (
     <div className="flex flex-col flex-1 items-center bg-zinc-50 dark:bg-black">
@@ -207,19 +216,21 @@ export default function Home() {
               </button>
             </div>
 
-            <ProductPayloadForm form={form} onChange={setForm} />
+            <ProductPayloadForm form={form} onChange={setForm} errors={fieldErrors} />
 
             <div className="flex flex-col gap-2 border-t border-zinc-200 pt-6 dark:border-zinc-800">
               <button
                 type="button"
-                disabled
+                disabled={!canGenerate}
+                title={canGenerate ? undefined : 'Rendering is not wired up in this build yet.'}
                 className="self-start rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
               >
                 Generate creative
               </button>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Rendering isn&apos;t wired up yet — this button will enable once every required field passes
-                validation.
+                {canGenerate
+                  ? 'All required fields pass validation. (Rendering isn’t wired up in this build yet.)'
+                  : 'Fix the highlighted field above to enable Generate.'}
               </p>
             </div>
           </div>

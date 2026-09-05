@@ -20,6 +20,9 @@ export type HardStopCode =
   | 'INSUFFICIENT_BENEFITS'
   | 'TOO_MANY_BENEFITS'
   | 'PRICE_POPULATED'
+  | 'INVALID_DOMAIN'
+  | 'FETCH_FAILED'
+  | 'EXTRACTION_FAILED'
 
 export interface HardStop {
   stopCode: HardStopCode

@@ -78,6 +78,7 @@ export function buildCreativeElement(payload: ProductPayload) {
           width={600}
           height={600}
           style={{ objectFit: 'contain' }}
+          alt=""
         />
       </div>
 
@@ -117,7 +118,7 @@ export function buildCreativeElement(payload: ProductPayload) {
         {payload.benefits.map((benefit, index) => (
           <div key={index} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 16 }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={TICK_ICON_DATA_URI} width={32} height={32} />
+            <img src={TICK_ICON_DATA_URI} width={32} height={32} alt="" />
             <span style={{ fontSize: 28, fontWeight: 500 }}>{benefit}</span>
           </div>
         ))}

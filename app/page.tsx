@@ -40,6 +40,9 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   const [banner, setBanner] = useState<string | null>(null)
   const [form, setForm] = useState<FormState | null>(null)
+  const [rendering, setRendering] = useState(false)
+  const [renderError, setRenderError] = useState<string | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
   async function callExtraction(path: string, body: unknown) {
     setLoading(true)
@@ -84,6 +87,9 @@ export default function Home() {
     setForm(null)
     setStep('entry')
     setBanner(null)
+    setRenderError(null)
+    if (previewUrl) URL.revokeObjectURL(previewUrl)
+    setPreviewUrl(null)
   }
 
   const validation = useMemo(
@@ -92,6 +98,33 @@ export default function Home() {
   )
   const fieldErrors = validation ? fieldErrorsFromValidation(validation) : {}
   const canGenerate = validation?.ok === true
+
+  async function generateCreative() {
+    if (!validation?.ok) return
+    setRendering(true)
+    setRenderError(null)
+    try {
+      const res = await fetch('/api/render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(validation.payload),
+      })
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as ApiResponse | null
+        setRenderError(data ? messageFromApiResponse(data) : `Render failed with HTTP ${res.status}.`)
+        return
+      }
+      // Same blob backs both the on-page preview and the download — one render call,
+      // no re-fetch — so the two can never drift from each other.
+      const blob = await res.blob()
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+      setPreviewUrl(URL.createObjectURL(blob))
+    } catch (err) {
+      setRenderError(err instanceof Error ? err.message : 'Network error — could not reach the server.')
+    } finally {
+      setRendering(false)
+    }
+  }
 
   return (
     <div className="flex flex-col flex-1 items-center bg-zinc-50 dark:bg-black">
@@ -221,17 +254,38 @@ export default function Home() {
             <div className="flex flex-col gap-2 border-t border-zinc-200 pt-6 dark:border-zinc-800">
               <button
                 type="button"
-                disabled={!canGenerate}
-                title={canGenerate ? undefined : 'Rendering is not wired up in this build yet.'}
+                disabled={!canGenerate || rendering}
+                onClick={() => void generateCreative()}
                 className="self-start rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
               >
-                Generate creative
+                {rendering ? 'Rendering…' : 'Generate creative'}
               </button>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                {canGenerate
-                  ? 'All required fields pass validation. (Rendering isn’t wired up in this build yet.)'
-                  : 'Fix the highlighted field above to enable Generate.'}
+                {canGenerate ? 'All required fields pass validation.' : 'Fix the highlighted field above to enable Generate.'}
               </p>
+
+              {renderError && (
+                <div className="rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+                  {renderError}
+                </div>
+              )}
+
+              {previewUrl && (
+                <div className="mt-4 flex flex-col items-start gap-3">
+                  <img
+                    src={previewUrl}
+                    alt="Generated ad creative preview"
+                    className="w-full max-w-sm rounded border border-zinc-200 dark:border-zinc-800"
+                  />
+                  <a
+                    href={previewUrl}
+                    download="minimalist-creative.png"
+                    className="rounded border border-zinc-900 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-100 dark:border-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-900"
+                  >
+                    Download PNG
+                  </a>
+                </div>
+              )}
             </div>
           </div>
         )}

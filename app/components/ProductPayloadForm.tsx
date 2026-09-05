@@ -219,7 +219,7 @@ export function ProductPayloadForm({ form, onChange, errors = {} }: ProductPaylo
         />
       </FieldRow>
 
-      <FieldRow label="Benefit 1 (verbatim)" required>
+      <FieldRow label="Benefit 1 (verbatim)" required error={errors.benefits}>
         <TextInput value={form.benefit1} onChange={(v) => set('benefit1', v)} hasError={!!errors.benefits} />
       </FieldRow>
 

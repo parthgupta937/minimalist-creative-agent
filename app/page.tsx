@@ -60,8 +60,11 @@ export default function Home() {
       } else {
         setBanner(messageFromApiResponse(data))
       }
-    } catch (err) {
-      setBanner(err instanceof Error ? err.message : 'Network error — could not reach the server.')
+    } catch {
+      // fetch()/res.json() throw raw browser-internal messages (e.g. "Failed to
+      // fetch") that aren't meaningful to a marketer — always show the same plain
+      // explanation instead of surfacing err.message verbatim.
+      setBanner('Network error — could not reach the server. Check your connection and try again.')
     } finally {
       setLoading(false)
     }
@@ -119,8 +122,8 @@ export default function Home() {
       const blob = await res.blob()
       if (previewUrl) URL.revokeObjectURL(previewUrl)
       setPreviewUrl(URL.createObjectURL(blob))
-    } catch (err) {
-      setRenderError(err instanceof Error ? err.message : 'Network error — could not reach the server.')
+    } catch {
+      setRenderError('Network error — could not reach the server. Check your connection and try again.')
     } finally {
       setRendering(false)
     }

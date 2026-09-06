@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import Link from 'next/link'
+import { useMemo, useRef, useState } from 'react'
 import { validatePayload, type ValidationResult } from '@/lib/spec'
 import {
   ProductPayloadForm,
@@ -10,18 +11,13 @@ import {
   formStateFromPayload,
   type FormState,
 } from '@/app/components/ProductPayloadForm'
+import { ScoreReport } from '@/app/components/ScoreReport'
+import type { ScoreResult } from '@/lib/scoring-spec'
 
 type EntryMode = 'url' | 'paste' | 'manual'
 type Step = 'entry' | 'review'
 
 type ApiResponse = ValidationResult | { ok: false; error: string }
-
-const tabClasses = (active: boolean) =>
-  `rounded-t px-4 py-2 text-sm font-medium border-b-2 ${
-    active
-      ? 'border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100'
-      : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200'
-  }`
 
 function messageFromApiResponse(data: ApiResponse): string {
   if (!data.ok) {
@@ -29,6 +25,79 @@ function messageFromApiResponse(data: ApiResponse): string {
     return data.error
   }
   return ''
+}
+
+const primaryButtonClasses =
+  'inline-flex items-center justify-center gap-2 rounded-md bg-panel px-5 py-2.5 text-sm font-medium on-panel transition-colors hover:bg-panel-hover disabled:cursor-not-allowed disabled:opacity-40'
+const secondaryButtonClasses =
+  'inline-flex items-center justify-center gap-2 rounded-md border border-line-strong px-5 py-2.5 text-sm font-medium text-ink transition-colors hover:border-ink disabled:cursor-not-allowed disabled:opacity-40'
+const cardClasses = 'rounded-lg border border-line bg-canvas p-6 sm:p-8'
+const labelClasses = 'text-sm font-medium text-ink'
+const inputClasses =
+  'w-full rounded-md border border-line-strong bg-canvas px-3 py-2.5 text-sm text-ink outline-none transition-colors placeholder:text-subtle focus:border-ink focus:ring-2 focus:ring-accent/25'
+const bannerErrorClasses = 'rounded-md border border-danger-border bg-danger-bg px-4 py-3 text-sm text-danger'
+
+function Spinner() {
+  return (
+    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+      <path className="opacity-80" d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function Stepper({ step }: { step: Step }) {
+  const items: { key: Step; index: number; label: string }[] = [
+    { key: 'entry', index: 1, label: 'Source' },
+    { key: 'review', index: 2, label: 'Review & generate' },
+  ]
+  return (
+    <ol className="flex items-center gap-3">
+      {items.map((item, i) => {
+        const active = item.key === step
+        const done = step === 'review' && item.key === 'entry'
+        return (
+          <li key={item.key} className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                  active || done ? 'bg-panel on-panel' : 'border border-line-strong text-subtle'
+                }`}
+              >
+                {done ? '✓' : item.index}
+              </span>
+              <span className={`text-sm font-medium ${active ? 'text-ink' : 'text-muted'}`}>{item.label}</span>
+            </div>
+            {i < items.length - 1 && <span className="h-px w-8 bg-line-strong" />}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+function EntryTabs({ mode, onSelect }: { mode: EntryMode; onSelect: (m: EntryMode) => void }) {
+  const options: { key: EntryMode; label: string }[] = [
+    { key: 'url', label: 'Fetch by URL' },
+    { key: 'paste', label: 'Paste content' },
+    { key: 'manual', label: 'Enter manually' },
+  ]
+  return (
+    <div className="inline-flex gap-1 rounded-md bg-canvas-sunken p-1">
+      {options.map((opt) => (
+        <button
+          key={opt.key}
+          type="button"
+          onClick={() => onSelect(opt.key)}
+          className={`rounded-sm px-3.5 py-1.5 text-sm font-medium transition-colors ${
+            mode === opt.key ? 'bg-panel on-panel' : 'text-muted hover:text-ink'
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 export default function Home() {
@@ -43,6 +112,22 @@ export default function Home() {
   const [rendering, setRendering] = useState(false)
   const [renderError, setRenderError] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [scoreResult, setScoreResult] = useState<ScoreResult | null>(null)
+  const [scoring, setScoring] = useState(false)
+  const [scoreError, setScoreError] = useState<string | null>(null)
+  // Bumped on every generateCreative() call; a scoring response only gets applied if
+  // it's still for the latest generation, so a slow score from a superseded
+  // Regenerate click can never clobber a newer one.
+  const generationRef = useRef(0)
+
+  // Merges a partial patch (or an updater keyed off the latest state) instead of
+  // replacing the whole object — a plain setForm(fullObject) from a stale async
+  // closure (e.g. two overlapping "Process background removal" calls) can silently
+  // clobber a field a concurrent update just wrote. Functional merge makes result
+  // order-independent.
+  function patchForm(patch: Partial<FormState> | ((prev: FormState) => Partial<FormState>)) {
+    setForm((prev) => (prev ? { ...prev, ...(typeof patch === 'function' ? patch(prev) : patch) } : prev))
+  }
 
   async function callExtraction(path: string, body: unknown) {
     setLoading(true)
@@ -93,6 +178,8 @@ export default function Home() {
     setRenderError(null)
     if (previewUrl) URL.revokeObjectURL(previewUrl)
     setPreviewUrl(null)
+    setScoreResult(null)
+    setScoreError(null)
   }
 
   const validation = useMemo(
@@ -102,10 +189,40 @@ export default function Home() {
   const fieldErrors = validation ? fieldErrorsFromValidation(validation) : {}
   const canGenerate = validation?.ok === true
 
+  // Fire-and-forget relative to the download link: previewUrl/download availability
+  // never depends on scoring state. The agent that generated this creative is not its
+  // own approver (legal.md §1), so a score can inform the marketer but never gate
+  // export — a human stays the final approver either way.
+  async function scoreGeneratedCreative(blob: Blob, payload: unknown, generation: number) {
+    setScoring(true)
+    setScoreError(null)
+    try {
+      const formData = new FormData()
+      formData.append('image', blob, 'creative.png')
+      formData.append('groundTruthPayload', JSON.stringify(payload))
+      const res = await fetch('/api/score', { method: 'POST', body: formData })
+      const data = (await res.json()) as { ok: boolean; result?: ScoreResult; error?: string }
+      if (generation !== generationRef.current) return // superseded by a newer regenerate
+      if (data.ok && data.result) {
+        setScoreResult(data.result)
+      } else {
+        setScoreError(data.error ?? `Scoring failed with HTTP ${res.status}.`)
+      }
+    } catch {
+      if (generation !== generationRef.current) return
+      setScoreError('Network error — could not reach the server. Check your connection and try again.')
+    } finally {
+      if (generation === generationRef.current) setScoring(false)
+    }
+  }
+
   async function generateCreative() {
     if (!validation?.ok) return
+    const generation = ++generationRef.current
     setRendering(true)
     setRenderError(null)
+    setScoreResult(null)
+    setScoreError(null)
     try {
       const res = await fetch('/api/render', {
         method: 'POST',
@@ -122,6 +239,7 @@ export default function Home() {
       const blob = await res.blob()
       if (previewUrl) URL.revokeObjectURL(previewUrl)
       setPreviewUrl(URL.createObjectURL(blob))
+      void scoreGeneratedCreative(blob, validation.payload, generation)
     } catch {
       setRenderError('Network error — could not reach the server. Check your connection and try again.')
     } finally {
@@ -130,168 +248,166 @@ export default function Home() {
   }
 
   return (
-    <div className="flex flex-col flex-1 items-center bg-zinc-50 dark:bg-black">
-      <main className="flex w-full max-w-2xl flex-col gap-8 px-6 py-16">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Minimalist — Ad Creative Generator
-          </h1>
-          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-            Pull a beminimalist.co product page, or enter its details by hand, then review every field before
-            generating a creative.
-          </p>
+    <div className="flex min-h-screen flex-1 flex-col bg-canvas-sunken">
+      <header className="border-b border-line bg-canvas">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
+          <div>
+            <p className="text-base font-bold tracking-tight text-ink">Minimalist</p>
+            <p className="text-xs font-medium text-muted">Ad Creative Generator</p>
+          </div>
+          <div className="flex items-center gap-4">
+            <Link href="/score" className="text-sm font-medium text-muted underline-offset-2 hover:text-ink hover:underline">
+              Score an ad
+            </Link>
+            <p className="hidden text-xs font-medium tracking-wide text-subtle sm:block">#HideNothing</p>
+          </div>
         </div>
+      </header>
 
-        {step === 'entry' && (
-          <div className="flex flex-col gap-6">
-            <div className="flex border-b border-zinc-200 dark:border-zinc-800">
-              <button type="button" className={tabClasses(mode === 'url')} onClick={() => setMode('url')}>
-                Fetch by URL
-              </button>
-              <button type="button" className={tabClasses(mode === 'paste')} onClick={() => setMode('paste')}>
-                Paste content instead
-              </button>
-              <button type="button" className={tabClasses(mode === 'manual')} onClick={() => setMode('manual')}>
-                Enter manually
-              </button>
-            </div>
-
-            {banner && (
-              <div className="rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
-                {banner}
-              </div>
-            )}
-
-            {mode === 'url' && (
-              <form onSubmit={submitUrl} className="flex flex-col gap-3">
-                <label className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                    Product page URL
-                  </span>
-                  <input
-                    type="text"
-                    value={urlInput}
-                    onChange={(e) => setUrlInput(e.target.value)}
-                    placeholder="https://beminimalist.co/products/..."
-                    className="w-full rounded border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                  />
-                </label>
-                <button
-                  type="submit"
-                  disabled={loading || urlInput.trim().length === 0}
-                  className="self-start rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
-                >
-                  {loading ? 'Fetching…' : 'Fetch'}
-                </button>
-              </form>
-            )}
-
-            {mode === 'paste' && (
-              <form onSubmit={submitPaste} className="flex flex-col gap-3">
-                <label className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                    Source URL (optional but recommended)
-                  </span>
-                  <input
-                    type="text"
-                    value={pasteUrl}
-                    onChange={(e) => setPasteUrl(e.target.value)}
-                    placeholder="https://beminimalist.co/products/..."
-                    className="w-full rounded border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                  />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                    Pasted page text or HTML
-                  </span>
-                  <textarea
-                    value={pasteContent}
-                    onChange={(e) => setPasteContent(e.target.value)}
-                    rows={10}
-                    placeholder="Paste the product page's visible text (or its HTML source) here…"
-                    className="w-full rounded border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                  />
-                </label>
-                <button
-                  type="submit"
-                  disabled={loading || pasteContent.trim().length === 0}
-                  className="self-start rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
-                >
-                  {loading ? 'Extracting…' : 'Extract'}
-                </button>
-              </form>
-            )}
-
-            {mode === 'manual' && (
-              <div className="flex flex-col gap-3">
-                <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                  Skip extraction entirely and type every field in yourself.
+      <main className="mx-auto w-full flex-1 px-6 py-10">
+        <div className={step === 'review' ? 'mx-auto max-w-6xl' : 'mx-auto max-w-2xl'}>
+          <div className="mb-8 flex flex-col gap-4">
+            <Stepper step={step} />
+            {step === 'entry' && (
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-ink">Turn a product page into a creative</h1>
+                <p className="mt-1.5 text-sm text-muted">
+                  Pull a beminimalist.co product page, or enter its details by hand, then review every field before
+                  generating a creative.
                 </p>
-                <button
-                  type="button"
-                  onClick={startManual}
-                  className="self-start rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
-                >
-                  Start manual entry
-                </button>
               </div>
             )}
           </div>
-        )}
 
-        {step === 'review' && form && (
-          <div className="flex flex-col gap-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Review &amp; edit</h2>
-              <button
-                type="button"
-                onClick={startOver}
-                className="text-sm text-zinc-500 underline hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-              >
-                Start over
-              </button>
-            </div>
+          {step === 'entry' && (
+            <div className={`${cardClasses} flex flex-col gap-6`}>
+              <EntryTabs mode={mode} onSelect={setMode} />
 
-            <ProductPayloadForm form={form} onChange={setForm} errors={fieldErrors} />
+              {banner && <div className={bannerErrorClasses}>{banner}</div>}
 
-            <div className="flex flex-col gap-2 border-t border-zinc-200 pt-6 dark:border-zinc-800">
-              <button
-                type="button"
-                disabled={!canGenerate || rendering}
-                onClick={() => void generateCreative()}
-                className="self-start rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
-              >
-                {rendering ? 'Rendering…' : 'Generate creative'}
-              </button>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                {canGenerate ? 'All required fields pass validation.' : 'Fix the highlighted field above to enable Generate.'}
-              </p>
-
-              {renderError && (
-                <div className="rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
-                  {renderError}
-                </div>
+              {mode === 'url' && (
+                <form onSubmit={submitUrl} className="flex flex-col gap-4">
+                  <label className="flex flex-col gap-1.5">
+                    <span className={labelClasses}>Product page URL</span>
+                    <input
+                      type="text"
+                      value={urlInput}
+                      onChange={(e) => setUrlInput(e.target.value)}
+                      placeholder="https://beminimalist.co/products/..."
+                      className={inputClasses}
+                    />
+                  </label>
+                  <button type="submit" disabled={loading || urlInput.trim().length === 0} className={`self-start ${primaryButtonClasses}`}>
+                    {loading && <Spinner />}
+                    {loading ? 'Fetching…' : 'Fetch'}
+                  </button>
+                </form>
               )}
 
-              {previewUrl && (
-                <div className="mt-4 flex flex-col items-start gap-3">
-                  <img
-                    src={previewUrl}
-                    alt="Generated ad creative preview"
-                    className="w-full max-w-sm rounded border border-zinc-200 dark:border-zinc-800"
-                  />
-                  <a
-                    href={previewUrl}
-                    download="minimalist-creative.png"
-                    className="rounded border border-zinc-900 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-100 dark:border-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-900"
+              {mode === 'paste' && (
+                <form onSubmit={submitPaste} className="flex flex-col gap-4">
+                  <label className="flex flex-col gap-1.5">
+                    <span className={labelClasses}>Source URL (optional but recommended)</span>
+                    <input
+                      type="text"
+                      value={pasteUrl}
+                      onChange={(e) => setPasteUrl(e.target.value)}
+                      placeholder="https://beminimalist.co/products/..."
+                      className={inputClasses}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5">
+                    <span className={labelClasses}>Pasted page text or HTML</span>
+                    <textarea
+                      value={pasteContent}
+                      onChange={(e) => setPasteContent(e.target.value)}
+                      rows={10}
+                      placeholder="Paste the product page's visible text (or its HTML source) here…"
+                      className={`${inputClasses} font-mono text-xs`}
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={loading || pasteContent.trim().length === 0}
+                    className={`self-start ${primaryButtonClasses}`}
                   >
-                    Download PNG
-                  </a>
+                    {loading && <Spinner />}
+                    {loading ? 'Extracting…' : 'Extract'}
+                  </button>
+                </form>
+              )}
+
+              {mode === 'manual' && (
+                <div className="flex flex-col gap-4">
+                  <p className="text-sm text-muted">Skip extraction entirely and type every field in yourself.</p>
+                  <button type="button" onClick={startManual} className={`self-start ${primaryButtonClasses}`}>
+                    Start manual entry
+                  </button>
                 </div>
               )}
             </div>
-          </div>
-        )}
+          )}
+
+          {step === 'review' && form && (
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_380px]">
+              <div className="flex flex-col gap-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-bold tracking-tight text-ink">Review &amp; edit</h2>
+                  <button type="button" onClick={startOver} className="text-sm font-medium text-muted underline-offset-2 hover:text-ink hover:underline">
+                    Start over
+                  </button>
+                </div>
+                <div className={cardClasses}>
+                  <ProductPayloadForm form={form} onChange={patchForm} errors={fieldErrors} />
+                </div>
+              </div>
+
+              <div className="lg:sticky lg:top-8 lg:self-start">
+                <div className={`${cardClasses} flex flex-col gap-4`}>
+                  <h2 className="text-sm font-bold uppercase tracking-wide text-muted">Creative</h2>
+
+                  <div className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-md border border-line bg-canvas-sunken">
+                    {previewUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={previewUrl} alt="Generated ad creative preview" className="h-full w-full object-contain" />
+                    ) : (
+                      <p className="px-6 text-center text-sm text-subtle">
+                        {rendering ? 'Rendering your creative…' : 'Your 1080×1080 creative will appear here.'}
+                      </p>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={!canGenerate || rendering}
+                    onClick={() => void generateCreative()}
+                    className={primaryButtonClasses}
+                  >
+                    {rendering && <Spinner />}
+                    {rendering ? 'Rendering…' : previewUrl ? 'Regenerate creative' : 'Generate creative'}
+                  </button>
+                  <p className="text-xs text-subtle">
+                    {canGenerate ? 'All required fields pass validation.' : 'Fix the highlighted field to enable Generate.'}
+                  </p>
+
+                  {renderError && <div className={bannerErrorClasses}>{renderError}</div>}
+
+                  {previewUrl && (
+                    <a href={previewUrl} download="minimalist-creative.png" className={`text-center ${secondaryButtonClasses}`}>
+                      Download PNG
+                    </a>
+                  )}
+
+                  {(scoring || scoreResult || scoreError) && (
+                    <div className="border-t border-line pt-4">
+                      <ScoreReport result={scoreResult} loading={scoring} error={scoreError} compact />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </main>
     </div>
   )

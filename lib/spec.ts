@@ -1,3 +1,9 @@
+// Extraction prompt targets ~100 chars; 140 leaves real headroom for LLM length
+// variance (a live smoke test produced a 127-char tagline against an initial 120
+// cap and hard-stopped) without letting the line run long enough to wrap past 3
+// lines in the renderer's left column.
+export const TAGLINE_MAX_CHARS = 140
+
 export interface ProductPayload {
   productName: string
   percentage: string
@@ -8,6 +14,12 @@ export interface ProductPayload {
   // in the Sept 2026 smoke test ships 4 verbatim bullets, so "exactly two" hard-stopped
   // on 100% of real products. Confirmed product decision: accept 2-4 verbatim, unmodified.
   benefits: string[]
+  // The one deliberately non-verbatim field (product decision, Sept 2026 redesign):
+  // a short synthesized summary grounded only in the verbatim fields above (never a
+  // new claim). Required on-canvas copy for the decluttered hero layout that replaced
+  // the full benefits list; benefits/keyIngredients/ph/usageTime/skinType are still
+  // extracted and validated for grounding + the review form, just no longer rendered.
+  tagline: string
   ph: string | null
   usageTime: string | null
   skinType: string | null
@@ -22,6 +34,7 @@ export type HardStopCode =
   | 'MISSING_REQUIRED_FIELD'
   | 'INSUFFICIENT_BENEFITS'
   | 'TOO_MANY_BENEFITS'
+  | 'TAGLINE_TOO_LONG'
   | 'PRICE_POPULATED'
   | 'INVALID_DOMAIN'
   | 'FETCH_FAILED'
@@ -105,6 +118,18 @@ export function validatePayload(input: unknown): ValidationResult {
     }
   }
 
+  if (!isNonEmptyString(raw.tagline)) return missingField('tagline')
+  if (raw.tagline.length > TAGLINE_MAX_CHARS) {
+    return {
+      ok: false,
+      stop: {
+        stopCode: 'TAGLINE_TOO_LONG',
+        field: 'tagline',
+        detail: `Tagline must be ${TAGLINE_MAX_CHARS} characters or fewer; got ${raw.tagline.length}.`,
+      },
+    }
+  }
+
   if (raw.price !== null && raw.price !== undefined) {
     return {
       ok: false,
@@ -123,6 +148,7 @@ export function validatePayload(input: unknown): ValidationResult {
     concernChip: toNullableString(raw.concernChip),
     keyIngredients: raw.keyIngredients as string[],
     benefits: benefits as string[],
+    tagline: raw.tagline,
     ph: toNullableString(raw.ph),
     usageTime: toNullableString(raw.usageTime),
     skinType: toNullableString(raw.skinType),

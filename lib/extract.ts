@@ -37,7 +37,7 @@ const RELEVANT_HEADING_PATTERNS = [
 const EXTRACTION_SYSTEM_PROMPT = `You are a verbatim data-extraction engine for Minimalist (beminimalist.co) skincare product pages. You are given pre-trimmed, labeled text sections copied directly from one product detail page (PDP), OR (when no labeled structure could be identified) the raw unstructured text of a page pasted by a marketer. Your only job is to copy fields out of this text exactly as written into the JSON fields described below.
 
 Hard rules:
-- Copy strings verbatim, character-for-character, from the sections provided. Never rewrite, paraphrase, summarize, compress, shorten, or translate.
+- Copy strings verbatim, character-for-character, from the sections provided. Never rewrite, paraphrase, summarize, compress, shorten, or translate. The single named exception is the "tagline" field below, which is deliberately a short synthesized summary rather than a verbatim copy - every other field remains strictly verbatim.
 - Never invent, guess, or infer a value that is not explicitly present in the text.
 - If a field is not confidently and unambiguously present in the provided text, return null for it (or an empty array for list fields). A missing or ambiguous field must never be filled in with an invented or approximate value.
 - Only use the labeled sections given to you. Do not use any outside knowledge about this or any other product.
@@ -50,6 +50,7 @@ Field-by-field instructions:
 - concernChip: the single first concern for this product. First check the CONCERN_STRAP_UNDER_TITLE section - if it reads as a specific skin concern (not a generic tagline), use it verbatim. Otherwise, look inside the section titled "Ideal For" for a line beginning "Concerns:" and take only the first concern listed before any comma, "&", or "and". Verbatim, first concern only. Null if no concern is confidently identifiable either way.
 - keyIngredients: section headings that name individual ingredients (short noun-phrase headings such as "Hyaluronic Acid" or "Niacinamide"), NOT the heading that aggregates the full ingredient list (e.g. "All Ingredients") and not any other heading. Return their heading text verbatim as a list, in the order given. Empty array if none are present.
 - benefits: the individual verbatim bullets/lines inside the section titled "What Makes It Potent?" (the primary product description). Return each bullet as its own array entry, unmodified and uncompressed - never merge two bullets into one string and never shorten a long bullet. Return exactly as many distinct verbatim bullets as are actually present; do not pad to a specific count and do not invent one.
+- tagline: the ONE exception to verbatim-only copying. Write a short, single-sentence, plain-English summary (maximum 100 characters) of what this product does, in your own words. It must be strictly grounded in - and only in - the benefits, concernChip, and keyIngredients you extracted above: every claim in it must already be present in that extracted text. Never introduce a new ingredient, claim, statistic, or superlative that isn't already there. Prefer condensing the benefits into one crisp line over copying a single bullet verbatim. If the extracted benefits/concernChip/keyIngredients are all empty, return null instead of inventing a generic line.
 - ph: the pH value or range from the ATTRIBUTE_BADGES section (e.g. "6.0 - 7.0"), verbatim. Null if absent.
 - usageTime: the value after "When to use:" inside the section titled "How to Use" (e.g. "AM & PM everyday"), verbatim. Null if absent.
 - skinType: the value after "Skin type:" (or, only if that label is absent, "Suitable for:") inside the section titled "Ideal For", verbatim. Null if absent.
@@ -70,6 +71,7 @@ const extractionSchema = {
     // minItems/maxItems here only guide the model's own guess at a typical count;
     // validatePayload() is the real 2-4 enforcement point (spec.ts), not this schema.
     benefits: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 8 },
+    tagline: { anyOf: [{ type: 'string' }, { type: 'null' }] },
     ph: { anyOf: [{ type: 'string' }, { type: 'null' }] },
     usageTime: { anyOf: [{ type: 'string' }, { type: 'null' }] },
     skinType: { anyOf: [{ type: 'string' }, { type: 'null' }] },
@@ -82,6 +84,7 @@ const extractionSchema = {
     'concernChip',
     'keyIngredients',
     'benefits',
+    'tagline',
     'ph',
     'usageTime',
     'skinType',
@@ -285,6 +288,7 @@ export interface ExtractedFields {
   concernChip: string | null
   keyIngredients: string[]
   benefits: string[]
+  tagline: string | null
   ph: string | null
   usageTime: string | null
   skinType: string | null
@@ -347,6 +351,7 @@ function buildCandidatePayload(fields: ExtractedFields, sourceUrl: string, fetch
     concernChip: fields.concernChip,
     keyIngredients: fields.keyIngredients,
     benefits: fields.benefits,
+    tagline: fields.tagline,
     ph: fields.ph,
     usageTime: fields.usageTime,
     skinType: fields.skinType,

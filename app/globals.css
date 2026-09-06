@@ -1,26 +1,84 @@
 @import "tailwindcss";
 
+/*
+ * Brand tokens — Minimalist brand creative spec §2 (docs/minimalist-brand-creative-spec.md).
+ * ink/panel/accent/canvas are the only four brand-verified colours; everything else
+ * (line/muted/subtle) is neutral scaffolding needed to build a usable app around them,
+ * not a brand token itself.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-canvas: #ffffff;       /* brand.white §2.1 */
+  --color-canvas-sunken: #fafaf9;
+  --color-ink: #000000;          /* brand.ink §2.1 — all body/headline type */
+  --color-panel: #222222;        /* brand.panel §2.1 — header bands, badge fills */
+  --color-panel-hover: #333333;
+  --color-accent: #e57131;       /* brand.accent.orange §2.1 — used sparingly for focus/active state */
+  --color-line: #e4e4e1;
+  --color-line-strong: #cfcfca;
+  --color-muted: #6b6b66;
+  --color-subtle: #97968f;
+  --color-danger: #b3261e;
+  --color-danger-bg: #fdf1f0;
+  --color-danger-border: #f3c6c2;
+  --color-warn: #92660a;
+  --color-warn-bg: #fbf3e2;
+  --color-warn-border: #edd9a8;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --color-canvas: #0a0a0a;
+    --color-canvas-sunken: #141413;
+    --color-ink: #f5f5f4;
+    --color-panel: #ededec;
+    --color-panel-hover: #ffffff;
+    --color-accent: #e57131;
+    --color-line: #2a2a28;
+    --color-line-strong: #383835;
+    --color-muted: #a3a29c;
+    --color-subtle: #6b6b66;
+    --color-danger: #ff6b61;
+    --color-danger-bg: #2a1513;
+    --color-danger-border: #4a231f;
+    --color-warn: #e0ab48;
+    --color-warn-bg: #2a2312;
+    --color-warn-border: #4a3d1f;
   }
 }
 
+@theme inline {
+  --color-canvas: var(--color-canvas);
+  --color-canvas-sunken: var(--color-canvas-sunken);
+  --color-ink: var(--color-ink);
+  --color-panel: var(--color-panel);
+  --color-panel-hover: var(--color-panel-hover);
+  --color-accent: var(--color-accent);
+  --color-line: var(--color-line);
+  --color-line-strong: var(--color-line-strong);
+  --color-muted: var(--color-muted);
+  --color-subtle: var(--color-subtle);
+  --color-danger: var(--color-danger);
+  --color-danger-bg: var(--color-danger-bg);
+  --color-danger-border: var(--color-danger-border);
+  --color-warn: var(--color-warn);
+  --color-warn-bg: var(--color-warn-bg);
+  --color-warn-border: var(--color-warn-border);
+  --font-sans: var(--font-inter);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans), Helvetica, Arial, sans-serif;
+}
+
+/* Panel text is white-on-dark in light mode, but panel flips to near-white in
+   dark mode (see above) — this keeps text on it legible in both directions. */
+.on-panel {
+  color: var(--color-canvas);
+}
+@media (prefers-color-scheme: dark) {
+  .on-panel {
+    color: #0a0a0a;
+  }
 }

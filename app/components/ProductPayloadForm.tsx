@@ -20,9 +20,9 @@ export interface FormState {
   packRenderUrl: string
   sourceUrl: string
   fetchedAt: string
-  removeBackground: boolean
-  bgRemovalProcessing: boolean
-  bgRemovalError: string | null
+  bgColor: string | null
+  bgColorSampling: boolean
+  bgColorError: string | null
 }
 
 export function emptyFormState(sourceUrl = ''): FormState {
@@ -40,9 +40,9 @@ export function emptyFormState(sourceUrl = ''): FormState {
     packRenderUrl: '',
     sourceUrl,
     fetchedAt: new Date().toISOString(),
-    removeBackground: false,
-    bgRemovalProcessing: false,
-    bgRemovalError: null,
+    bgColor: null,
+    bgColorSampling: false,
+    bgColorError: null,
   }
 }
 
@@ -61,9 +61,9 @@ export function formStateFromPayload(payload: ProductPayload): FormState {
     packRenderUrl: payload.packRenderUrl,
     sourceUrl: payload.sourceUrl,
     fetchedAt: payload.fetchedAt,
-    removeBackground: false,
-    bgRemovalProcessing: false,
-    bgRemovalError: null,
+    bgColor: payload.bgColor ?? null,
+    bgColorSampling: false,
+    bgColorError: null,
   }
 }
 
@@ -85,6 +85,7 @@ export function buildCandidatePayload(form: FormState): unknown {
     usageTime: form.usageTime,
     skinType: form.skinType,
     packRenderUrl: form.packRenderUrl,
+    bgColor: form.bgColor,
     price: null,
     sourceUrl: form.sourceUrl,
     fetchedAt: form.fetchedAt,
@@ -208,13 +209,11 @@ export function ProductPayloadForm({ form, onChange, errors = {} }: ProductPaylo
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     onChange({ [key]: value } as Partial<FormState>)
   }
-  // Synchronous re-entrancy guard: React state (bgRemovalProcessing) only blocks a
+  // Synchronous re-entrancy guard: React state (bgColorSampling) only blocks a
   // second click after a re-render commits, which isn't fast enough to catch two
-  // click events that land in the same tick (observed: two "Process background
-  // removal" requests completing milliseconds apart, racing to set packRenderUrl).
-  // A ref is mutated immediately, so the second call sees it before the first
-  // await ever yields.
-  const bgRemovalInFlight = useRef(false)
+  // click events that land in the same tick. A ref is mutated immediately, so the
+  // second call sees it before the first await ever yields.
+  const bgColorSampleInFlight = useRef(false)
 
   return (
     <div className="flex flex-col gap-6">
@@ -349,59 +348,44 @@ export function ProductPayloadForm({ form, onChange, errors = {} }: ProductPaylo
         <div className="flex flex-col gap-3 rounded-md border border-line bg-canvas-sunken p-4">
           <p className={labelClasses}>Product image background</p>
           <p className="text-xs text-subtle">
-            The creative places this image straight onto a fixed canvas background, so a
-            background-removed (transparent) pack shot blends in — recommended before generating.
+            The creative places this image onto its own colour panel. Sample the pack photo&apos;s
+            studio backdrop colour from its corners so the panel blends with the photo instead of
+            clashing against it — recommended before generating.
           </p>
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="removeBackground"
-              checked={form.removeBackground}
-              onChange={(e) => set('removeBackground', e.target.checked)}
-              disabled={form.bgRemovalProcessing}
-              className="h-4 w-4 cursor-pointer accent-(--color-panel)"
-            />
-            <label htmlFor="removeBackground" className={`${labelClasses} cursor-pointer`}>
-              Remove image background before generating
-            </label>
-          </div>
-          {form.removeBackground && (
-            <button
-              type="button"
-              onClick={async () => {
-                if (bgRemovalInFlight.current) return
-                bgRemovalInFlight.current = true
-                onChange({ bgRemovalProcessing: true, bgRemovalError: null })
-                try {
-                  const res = await fetch('/api/remove-background', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ imageUrl: form.packRenderUrl }),
-                  })
-                  const data = (await res.json()) as { imageUrl?: string; error?: string }
-                  if (data.imageUrl) {
-                    onChange({ packRenderUrl: data.imageUrl })
-                  } else {
-                    onChange({ bgRemovalError: data.error || 'Unknown error' })
-                  }
-                } catch (err) {
-                  onChange({ bgRemovalError: err instanceof Error ? err.message : 'Unknown error' })
-                } finally {
-                  bgRemovalInFlight.current = false
-                  onChange({ bgRemovalProcessing: false })
+          <button
+            type="button"
+            onClick={async () => {
+              if (bgColorSampleInFlight.current) return
+              bgColorSampleInFlight.current = true
+              onChange({ bgColorSampling: true, bgColorError: null })
+              try {
+                const res = await fetch('/api/sample-bg-color', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ imageUrl: form.packRenderUrl }),
+                })
+                const data = (await res.json()) as { ok: boolean; color?: string; error?: string }
+                if (data.ok && data.color) {
+                  onChange({ bgColor: data.color })
+                } else {
+                  onChange({ bgColorError: data.error || 'Unknown error' })
                 }
-              }}
-              disabled={form.bgRemovalProcessing || !form.packRenderUrl.trim()}
-              className="inline-flex w-fit items-center gap-2 rounded-md bg-panel px-3 py-1.5 text-xs font-medium on-panel transition-colors hover:bg-panel-hover disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {form.bgRemovalProcessing ? 'Processing…' : 'Process background removal'}
-            </button>
-          )}
-          {form.bgRemovalError && (
+              } catch (err) {
+                onChange({ bgColorError: err instanceof Error ? err.message : 'Unknown error' })
+              } finally {
+                bgColorSampleInFlight.current = false
+                onChange({ bgColorSampling: false })
+              }
+            }}
+            disabled={form.bgColorSampling || !form.packRenderUrl.trim()}
+            className="inline-flex w-fit items-center gap-2 rounded-md bg-panel px-3 py-1.5 text-xs font-medium on-panel transition-colors hover:bg-panel-hover disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {form.bgColorSampling ? 'Sampling…' : 'Sample background colour'}
+          </button>
+          {form.bgColorError && (
             <p className={errorTextClasses}>
-              Background removal failed: {form.bgRemovalError}. Make sure the local Rembg server is
-              running (<code className="font-mono">python3 rembg-server.py</code>) — this is a local,
-              optional enhancement, not a hard-stop, so you can still generate with the original image.
+              Colour sampling failed: {form.bgColorError}. This is a non-blocking enhancement — you
+              can still generate with a plain white panel.
             </p>
           )}
           {form.packRenderUrl.trim() && (
@@ -412,11 +396,21 @@ export function ProductPayloadForm({ form, onChange, errors = {} }: ProductPaylo
                 alt="Current pack render preview"
                 className="h-20 w-20 rounded-md border border-line object-contain"
               />
-              <span className="text-xs font-medium text-muted">
-                {form.packRenderUrl.startsWith('data:')
-                  ? '✓ Background-removed image is active — this is what Generate will use.'
-                  : 'Original image URL is active — background has not been removed yet.'}
-              </span>
+              {form.bgColor ? (
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-6 w-6 shrink-0 rounded-full border border-line-strong"
+                    style={{ backgroundColor: form.bgColor }}
+                  />
+                  <span className="text-xs font-medium text-muted">
+                    ✓ Sampled {form.bgColor} — the product panel will use this colour.
+                  </span>
+                </div>
+              ) : (
+                <span className="text-xs font-medium text-muted">
+                  No colour sampled yet — the product panel will default to white.
+                </span>
+              )}
             </div>
           )}
         </div>

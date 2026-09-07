@@ -37,9 +37,10 @@ export async function loadCreativeFonts(): Promise<SatoriFont[]> {
 // concern pill, headline + percentage, format descriptor, one synthesized tagline, and
 // a large product shot. keyIngredients/benefits/ph/usageTime/skinType are still
 // extracted and validated (lib/spec.ts) for the review form and as tagline grounding,
-// they're deliberately no longer drawn on-canvas. Canvas background is a fixed flat
-// colour regardless of the source photo — "keep the background consistent" — so a
-// background-removed pack image (see /api/remove-background) blends onto it seamlessly.
+// they're deliberately no longer drawn on-canvas. The text panel stays fixed white for
+// contrast; the product-image panel is filled with payload.bgColor — the pack photo's
+// own studio backdrop colour, sampled by lib/sample-background-color.ts — so the photo
+// blends into its panel without needing an ML background cutout.
 export function buildCreativeElement(payload: ProductPayload) {
   // Real PDP H1s vary: some carry the percentage as a separate token from the name
   // (e.g. "2% Salicylic Acid Serum"), others bake it directly into the name (e.g.
@@ -117,6 +118,7 @@ export function buildCreativeElement(payload: ProductPayload) {
           alignItems: 'center',
           justifyContent: 'center',
           overflow: 'hidden',
+          backgroundColor: payload.bgColor ?? WHITE,
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}

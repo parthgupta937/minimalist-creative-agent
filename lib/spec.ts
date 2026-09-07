@@ -24,6 +24,11 @@ export interface ProductPayload {
   usageTime: string | null
   skinType: string | null
   packRenderUrl: string
+  // Sampled from the four corners of the pack photo (lib/sample-background-color.ts)
+  // and used as the product-image panel's canvas background, so the photo's own
+  // studio backdrop blends in without needing an ML cutout. Null until sampled;
+  // the renderer falls back to plain white.
+  bgColor: string | null
   price: null
   sourceUrl: string
   fetchedAt: string
@@ -56,6 +61,14 @@ function isNonEmptyString(value: unknown): value is string {
 
 function toNullableString(value: unknown): string | null {
   return isNonEmptyString(value) ? value : null
+}
+
+const HEX_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/
+
+// A malformed sampled color is a cosmetic miss, not a reason to block generation —
+// silently fall back to null (renderer defaults to white) rather than hard-stopping.
+function toNullableHexColor(value: unknown): string | null {
+  return typeof value === 'string' && HEX_COLOR_PATTERN.test(value) ? value : null
 }
 
 function missingField(field: string): ValidationResult {
@@ -153,6 +166,7 @@ export function validatePayload(input: unknown): ValidationResult {
     usageTime: toNullableString(raw.usageTime),
     skinType: toNullableString(raw.skinType),
     packRenderUrl: raw.packRenderUrl,
+    bgColor: toNullableHexColor(raw.bgColor),
     price: null,
     sourceUrl: raw.sourceUrl,
     fetchedAt: raw.fetchedAt,

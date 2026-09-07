@@ -22,6 +22,21 @@ function isDark(hex: string): boolean {
   return 0.299 * r + 0.587 * g + 0.114 * b < 140
 }
 
+// Mirrors the existing percentage-dedup rationale below: some PDP H1s bake the format
+// descriptor into the product name too (e.g. name "Nonapeptide + AHA 6% Underarm
+// Roll-On" alongside its own formatDescriptor "Underarm Roll-on"), which printed the
+// same descriptor twice — once in the headline, once again on its own subtitle line.
+// The subtitle is the field meant to carry it, so it's stripped from the headline
+// display only; payload.productName itself stays verbatim for validation/records.
+function stripTrailingDescriptor(name: string, descriptor: string | null): string {
+  if (!descriptor) return name
+  const lowerName = name.toLowerCase()
+  const lowerDescriptor = descriptor.toLowerCase()
+  if (lowerDescriptor.length === 0 || !lowerName.endsWith(lowerDescriptor)) return name
+  const remainder = name.slice(0, name.length - descriptor.length).replace(/[\s\-–—|,]+$/, '')
+  return remainder.length > 0 ? remainder : name
+}
+
 type SatoriFont = {
   name: string
   data: ArrayBuffer
@@ -58,11 +73,13 @@ export async function loadCreativeFonts(): Promise<SatoriFont[]> {
 // blends in without needing an ML background cutout, and text/chip/rule colours flip
 // to white-on-dark automatically when that sampled colour is dark.
 export function buildCreativeElement(payload: ProductPayload) {
+  const displayName = stripTrailingDescriptor(payload.productName, payload.formatDescriptor)
+
   // Real PDP H1s vary: some carry the percentage as a separate token from the name
   // (e.g. "2% Salicylic Acid Serum"), others bake it directly into the name (e.g.
   // "Hair Growth + Anti-Grey 15.6% Hair Serum"). Rendering percentage as its own
   // line unconditionally duplicated it verbatim in the latter case.
-  const percentageAlreadyInName = payload.productName.includes(payload.percentage)
+  const percentageAlreadyInName = displayName.includes(payload.percentage)
 
   const canvasColor = payload.bgColor ?? WHITE
   const dark = isDark(canvasColor)
@@ -112,7 +129,7 @@ export function buildCreativeElement(payload: ProductPayload) {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 12 }}>
-            <span style={{ fontSize: 58, fontWeight: 700, lineHeight: 1.05 }}>{payload.productName}</span>
+            <span style={{ fontSize: 58, fontWeight: 700, lineHeight: 1.05 }}>{displayName}</span>
             {/* Same textColor as the name, not brand.accent.orange — orange percentage
                 is a launch-asset-only rule (spec §3.4); this build renders Template C only. */}
             {!percentageAlreadyInName && (

@@ -10,7 +10,7 @@ import traceback
 
 try:
     from flask import Flask, request, send_file
-    from rembg import remove
+    from rembg import remove, new_session
     from PIL import Image
     import io
     import requests
@@ -22,11 +22,19 @@ except ImportError as e:
 
 app = Flask(__name__)
 
+# u2net (the rembg default) is ~176MB and its onnxruntime session pushes total
+# memory past the 512MB cap on Render's free tier, causing an OOM kill before
+# the server ever finishes booting. u2netp is rembg's lightweight variant
+# (~4.7MB, still general-purpose) built for exactly this constraint — set via
+# render.yaml's REMBG_MODEL env var for the hosted deploy, while local dev
+# still defaults to full-quality u2net.
+REMBG_MODEL = os.environ.get('REMBG_MODEL', 'u2net')
+print(f"Loading Rembg model '{REMBG_MODEL}' (this may take a moment on first run)...")
+REMBG_SESSION = new_session(REMBG_MODEL)
 # Loaded at import time (not inside `if __name__ == "__main__"`) so it also runs
 # under a WSGI server like gunicorn, which imports this module and uses `app`
 # directly without ever executing the __main__ block.
-print("Loading Rembg model (this may take a moment on first run)...")
-_ = remove(Image.new('RGB', (100, 100)))
+_ = remove(Image.new('RGB', (100, 100)), session=REMBG_SESSION)
 print("Model loaded successfully!")
 
 @app.route('/health', methods=['GET'])
@@ -72,7 +80,7 @@ def remove_background():
 
         # Remove background
         print(f"Processing image removal...")
-        output_image = remove(input_image)
+        output_image = remove(input_image, session=REMBG_SESSION)
         print(f"Background removal complete")
 
         # Save to bytes

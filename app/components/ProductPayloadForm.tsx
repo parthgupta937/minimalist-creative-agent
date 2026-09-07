@@ -346,11 +346,12 @@ export function ProductPayloadForm({ form, onChange, errors = {} }: ProductPaylo
         </FieldRow>
 
         <div className="flex flex-col gap-3 rounded-md border border-line bg-canvas-sunken p-4">
-          <p className={labelClasses}>Product image background</p>
+          <p className={labelClasses}>Creative background colour</p>
           <p className="text-xs text-subtle">
-            The creative places this image onto its own colour panel. Sample the pack photo&apos;s
-            studio backdrop colour from its corners so the panel blends with the photo instead of
-            clashing against it — recommended before generating.
+            Sample the pack photo&apos;s studio backdrop colour from its corners and use it as the
+            whole creative&apos;s background, so the photo blends in seamlessly instead of showing a
+            rectangle against a mismatched fixed colour. Text automatically switches to white if
+            the sampled colour is dark — recommended before generating.
           </p>
           <button
             type="button"
@@ -403,12 +404,12 @@ export function ProductPayloadForm({ form, onChange, errors = {} }: ProductPaylo
                     style={{ backgroundColor: form.bgColor }}
                   />
                   <span className="text-xs font-medium text-muted">
-                    ✓ Sampled {form.bgColor} — the product panel will use this colour.
+                    ✓ Sampled {form.bgColor} — the whole creative will use this background colour.
                   </span>
                 </div>
               ) : (
                 <span className="text-xs font-medium text-muted">
-                  No colour sampled yet — the product panel will default to white.
+                  No colour sampled yet — the creative will default to a white background.
                 </span>
               )}
             </div>

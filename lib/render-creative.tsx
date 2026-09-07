@@ -37,6 +37,22 @@ function stripTrailingDescriptor(name: string, descriptor: string | null): strin
   return remainder.length > 0 ? remainder : name
 }
 
+// Single source of truth for "what text actually appears on the canvas" — used both
+// to render the creative and (lib/score-ad.ts) to score its content directly from the
+// known payload, without re-deriving it via OCR from the rendered image.
+export function getRenderedTextLines(payload: ProductPayload): string[] {
+  const displayName = stripTrailingDescriptor(payload.productName, payload.formatDescriptor)
+  const percentageAlreadyInName = displayName.includes(payload.percentage)
+
+  const lines: string[] = []
+  if (payload.concernChip !== null) lines.push(payload.concernChip)
+  lines.push(displayName)
+  if (!percentageAlreadyInName) lines.push(payload.percentage)
+  if (payload.formatDescriptor !== null) lines.push(payload.formatDescriptor)
+  lines.push(payload.tagline)
+  return lines
+}
+
 type SatoriFont = {
   name: string
   data: ArrayBuffer

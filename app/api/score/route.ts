@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { scoreAd } from '@/lib/score-ad'
+import { validatePayload } from '@/lib/spec'
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
@@ -31,28 +32,44 @@ export async function POST(request: NextRequest): Promise<Response> {
     return NextResponse.json({ ok: false, error: 'Image is too large (max 8MB).' }, { status: 400 })
   }
 
-  const notesRaw = formData.get('notes')
-  const notes = typeof notesRaw === 'string' ? notesRaw : null
-
   // Only the internal auto-score call from the generator flow sends this — a caller
   // scoring an arbitrary pasted-in ad has no verified source payload to check against.
+  // When present and valid, the image above is never uploaded to the model at all —
+  // the exact on-canvas text is already known server-side (lib/score-ad.ts
+  // 'known-content' mode), which is both more accurate than OCR and keeps the review
+  // scoped to content rather than the photo.
   const groundTruthRaw = formData.get('groundTruthPayload')
-  let groundTruthPayload: Record<string, unknown> | null = null
   if (typeof groundTruthRaw === 'string' && groundTruthRaw.trim().length > 0) {
+    let parsedJson: unknown
     try {
-      groundTruthPayload = JSON.parse(groundTruthRaw)
+      parsedJson = JSON.parse(groundTruthRaw)
     } catch {
       return NextResponse.json({ ok: false, error: 'groundTruthPayload was present but not valid JSON.' }, { status: 400 })
     }
+    const validation = validatePayload(parsedJson)
+    if (!validation.ok) {
+      return NextResponse.json(
+        { ok: false, error: `groundTruthPayload failed validation: ${validation.stop.detail}` },
+        { status: 400 },
+      )
+    }
+    const outcome = await scoreAd({ apiKey, mode: 'known-content', payload: validation.payload })
+    if (!outcome.ok) {
+      return NextResponse.json({ ok: false, error: outcome.error }, { status: 502 })
+    }
+    return NextResponse.json({ ok: true, result: outcome.result })
   }
+
+  const notesRaw = formData.get('notes')
+  const notes = typeof notesRaw === 'string' ? notesRaw : null
 
   const imageBase64 = Buffer.from(await image.arrayBuffer()).toString('base64')
   const outcome = await scoreAd({
     apiKey,
+    mode: 'vision',
     imageBase64,
     mediaType: image.type as 'image/png' | 'image/jpeg' | 'image/webp',
     notes,
-    groundTruthPayload,
   })
 
   if (!outcome.ok) {

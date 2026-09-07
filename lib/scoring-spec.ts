@@ -5,7 +5,8 @@ export type Verdict = 'reject' | 'needs_review' | 'pass'
 export interface Finding {
   dimension: Dimension
   severity: Severity
-  /** Exact text/phrase this finding is about, or null for a visual-only observation. */
+  /** Exact text/phrase this finding is about — every finding is content-based (scope
+   *  excludes the product photograph), so this is never null in practice. */
   quote: string | null
   issue: string
   /** e.g. "legal.md §3.2", "brand spec §9.2" — lets a reviewer go check the source. */
@@ -37,11 +38,13 @@ export interface ScoreResult {
 export const SANDBOX_DISCLAIMER =
   'Sandbox tool — legal.md §0 governance preconditions (approved claim register, SKU concentration record, named Copy Approver) are not present in this environment. No verdict here authorizes publication; every asset still requires human Copy Approver review (legal.md §1).'
 
+// Always true regardless of mode (vision OCR vs. known-content). Mode-specific
+// limitations (OCR misread risk, font licensing) are appended in lib/score-ad.ts
+// only for the vision path, where they actually apply.
 export const BASE_LIMITATIONS: string[] = [
   SANDBOX_DISCLAIMER,
+  'Scope is on-canvas text/copy only — this reviewer does not evaluate the product photograph itself (composition, backdrop, whether it depicts a specific real product, or any other purely visual element). A visually non-compliant photo (e.g. §3.5/§9.3 imagery rules) is not caught here.',
   'No APPROVED_CLAIM_REGISTER or SKU_CONCENTRATION_RECORD exists, so claims are checked against the hard blocklist (legal.md §3) and tier heuristics (§5/§12.3), not verified against an authoritative register or a live batch concentration.',
-  'Text is read off the image via vision OCR — small, stylized, or low-contrast type can be missed or misread.',
-  'Font licensing (legal.md §7) cannot be verified from an image.',
   'The deterministic blocklist matches word stems and can false-positive on legitimate brand phrasing (e.g. "barrier repair") — treat every match as something to adjudicate, not an automatic fact.',
   'The deterministic time-bound-claim check only matches a claim with a literal digit ("in 7 days"); vague equivalents ("in just weeks", "soon") rely entirely on model judgment and are not guaranteed to be caught.',
 ]

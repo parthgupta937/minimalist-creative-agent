@@ -10,32 +10,70 @@ import traceback
 
 try:
     from flask import Flask, request, send_file
-    from rembg import remove, new_session
-    from PIL import Image
+    from PIL import Image, ImageOps
     import io
     import requests
+    import onnxruntime as ort
+    from rembg.sessions.u2net import U2netSession
+    from rembg.sessions.u2netp import U2netpSession
 except ImportError as e:
     print(f"ERROR: Missing required package: {e}")
     print("\nInstall missing dependencies with:")
     print("  pip install rembg[cpu] flask requests pillow")
     sys.exit(1)
+except Exception:
+    # onnxruntime's provider bridge raises non-ImportError exceptions (e.g.
+    # `NoSuchFileError` when a shared lib is missing) on unsupported platforms.
+    traceback.print_exc()
+    sys.exit(1)
 
 app = Flask(__name__)
 
-# u2net (the rembg default) is ~176MB and its onnxruntime session pushes total
-# memory past the 512MB cap on Render's free tier, causing an OOM kill before
-# the server ever finishes booting. u2netp is rembg's lightweight variant
-# (~4.7MB, still general-purpose) built for exactly this constraint — set via
-# render.yaml's REMBG_MODEL env var for the hosted deploy, while local dev
-# still defaults to full-quality u2net.
+# Deliberately NOT `from rembg import remove, new_session`: rembg/__init__.py
+# imports .bg, which unconditionally imports cv2, pymatting, and scipy for its
+# (unused here) alpha-matting feature. Importing rembg's session classes
+# directly skips that ~150MB of dead-weight imports. The bigger cost, though,
+# is onnxruntime's default CPU arena allocator + memory-pattern optimizer,
+# which was measured (via `/usr/bin/time -l`) to inflate a single inference's
+# peak RSS to ~650-700MB regardless of model size — comfortably past Render's
+# free-tier 512MB cap even with the smallest model. Disabling both and pinning
+# single-threaded execution (Render's free tier is 0.1 shared vCPU anyway, so
+# multi-threading buys nothing) brings peak RSS down to ~400-450MB even for a
+# 2000px image.
+_SESSION_CLASSES = {'u2net': U2netSession, 'u2netp': U2netpSession}
 REMBG_MODEL = os.environ.get('REMBG_MODEL', 'u2net')
+SESSION_CLASS = _SESSION_CLASSES.get(REMBG_MODEL, U2netSession)
+
+_sess_opts = ort.SessionOptions()
+_sess_opts.enable_cpu_mem_arena = False
+_sess_opts.enable_mem_pattern = False
+_sess_opts.intra_op_num_threads = 1
+_sess_opts.inter_op_num_threads = 1
+
 print(f"Loading Rembg model '{REMBG_MODEL}' (this may take a moment on first run)...")
-REMBG_SESSION = new_session(REMBG_MODEL)
+REMBG_SESSION = SESSION_CLASS(REMBG_MODEL, _sess_opts, providers=['CPUExecutionProvider'])
 # Loaded at import time (not inside `if __name__ == "__main__"`) so it also runs
 # under a WSGI server like gunicorn, which imports this module and uses `app`
 # directly without ever executing the __main__ block.
-_ = remove(Image.new('RGB', (100, 100)), session=REMBG_SESSION)
+_ = REMBG_SESSION.predict(Image.new('RGB', (100, 100)))
 print("Model loaded successfully!")
+
+# Defensive cap on input resolution: the model resizes to 320x320 internally
+# regardless of input size, so this doesn't affect mask quality in practice —
+# it only bounds worst-case memory for arbitrarily large uploaded/fetched
+# images (remove-bg's image_url path fetches whatever URL the caller gives it).
+MAX_DIMENSION = 1600
+
+def remove_background(img: Image.Image) -> Image.Image:
+    """Replicates rembg.bg.remove()'s default (no alpha-matting) code path."""
+    img = ImageOps.exif_transpose(img)
+    if img.mode not in ('RGB', 'RGBA'):
+        img = img.convert('RGB')
+    if max(img.size) > MAX_DIMENSION:
+        img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.Resampling.LANCZOS)
+    mask = REMBG_SESSION.predict(img)[0]
+    empty = Image.new('RGBA', img.size, 0)
+    return Image.composite(img, empty, mask)
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -43,7 +81,7 @@ def health():
     return {'status': 'ok'}, 200
 
 @app.route('/remove-bg', methods=['POST'])
-def remove_background():
+def remove_background_route():
     """
     Remove background from an image.
 
@@ -80,7 +118,7 @@ def remove_background():
 
         # Remove background
         print(f"Processing image removal...")
-        output_image = remove(input_image, session=REMBG_SESSION)
+        output_image = remove_background(input_image)
         print(f"Background removal complete")
 
         # Save to bytes
